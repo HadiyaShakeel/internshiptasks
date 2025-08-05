@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Chat with AI</title>
+  <link rel="stylesheet" href="../static/style.css">
+
+
+
+</head>
+
+<body>
+  <div class="container">
+    <h1>Chat with AI</h1>
+    
+    <form id="chat-form">
+      <input type="text" id="user_id" placeholder="Your ID" required />
+      <textarea id="userinput" placeholder="Ask something..." required></textarea>
+      <button type="submit">Send</button>
+    </form>
+
+    <pre id="response-box" class="chatbox"></pre>
+  </div>
+
+  <script>
+    const form = document.getElementById("chat-form");
+    const responseBox = document.getElementById("response-box");
+
+    form.addEventListener("submit", async function (e) {
+      e.preventDefault();
+      responseBox.textContent = "";
+
+      const user_id = document.getElementById("user_id").value;
+      const userinput = document.getElementById("userinput").value;
+
+      const response = await fetch(`/stream?user_id=${encodeURIComponent(user_id)}&userinput=${encodeURIComponent(userinput)}`);
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder("utf-8");
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        responseBox.textContent += decoder.decode(value);
+      }
+    });
+  </script>
+</body>
+</html>
