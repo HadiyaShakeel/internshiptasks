@@ -1,88 +1,88 @@
-from fastapi import FastAPI
-from pydantic import BaseModel
-import requests
-import os
-from sqlalchemy import create_engine, Column, String, Integer, Text, DateTime
-from sqlalchemy.orm import declarative_base, sessionmaker
-from datetime import datetime
+from fastapi import FastAPI, Request, Depends
+from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+from sqlalchemy.orm import Session
+from openai import AsyncOpenAI
 from dotenv import load_dotenv
+import time, os, asyncio
+
+from app.models import ChatHistory
+from app.database import get_db
+from app.crud import save_chat, get_all_chats, delete_chat
+from app.langsmith_utils import create_traceable_chain, log_step, end_trace
+from app.prompts import get_system_prompt
 
 load_dotenv()
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-OPENAI_API_URL = os.getenv("OPENAI_API_URL")
-
-DATABASE_URL = "sqlite:///./chat_history.db"
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
-Base = declarative_base()
-SessionLocal = sessionmaker(bind=engine)
-db = SessionLocal()
-
-class ChatHistory(Base):
-    __tablename__ = "chat_history"
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(String, index=True)
-    userinput = Column(Text)
-    ai_response = Column(Text)
-    timestamp = Column(DateTime, default=datetime.utcnow)
-
-Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
+client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-class QueryInput(BaseModel):
-    user_id: str
-    userinput: str
+app.mount("/static", StaticFiles(directory="app/static"), name="static")
+templates = Jinja2Templates(directory="app/templates")
 
-def fetchAns_ai(conversation: list) -> str:
-    headers = {
-        "Authorization": f"Bearer {OPENAI_API_KEY}",
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "model": "gpt-3.5-turbo",
-        "messages": conversation
-    }
-    response = requests.post(OPENAI_API_URL, headers=headers, json=payload)
-    if response.status_code == 200:
-        ai_reply = response.json()["choices"][0]["message"]["content"]
-        return ai_reply.strip()
-    else:
-        return f"Error {response.status_code}: {response.text}"
+@app.get("/")
+async def home(request: Request):
+    return templates.TemplateResponse("chat.html", {"request": request})
 
-@app.post("/askai")
-def get_ai_answer(request_data: QueryInput):
-    user_id = request_data.user_id
-    user_input = request_data.userinput
+@app.get("/stream")
+async def stream_chat(user_id: str, userinput: str, db: Session = Depends(get_db)):
+    trace = create_traceable_chain()
 
-    past_chats = db.query(ChatHistory).filter(ChatHistory.user_id == user_id).order_by(ChatHistory.timestamp).all()
+    async def event_stream():
+        system_prompt = get_system_prompt()
+        log_step(trace, "System Prompt", {}, {"prompt": system_prompt})
 
-    conversation = []
-    for chat in past_chats:
-        conversation.append({"role": "user", "content": chat.userinput})
-        conversation.append({"role": "assistant", "content": chat.ai_response})
-    conversation.append({"role": "user", "content": user_input})
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": userinput}
+        ]
 
-    ai_reply = fetchAns_ai(conversation)
+        start = time.time()
+        full_response = ""
 
-    chat_record = ChatHistory(
-        user_id=user_id,
-        userinput=user_input,
-        ai_response=ai_reply
-    )
-    db.add(chat_record)
-    db.commit()
+        response = await client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=messages,
+            stream=True
+        )
 
-    return {
-        "status_code": 200,
-        "method": "POST",
-        "user_input": user_input,
-        "ai_response": ai_reply
-    }
-    
-@app.get("/askai")
-def get_user_history(user_id: str):
-    chats = db.query(ChatHistory).filter(ChatHistory.user_id == user_id).order_by(ChatHistory.timestamp).all()
-    return [
-        {"user": chat.userinput, "ai": chat.ai_response, "time": chat.timestamp}
-        for chat in chats
-    ]
+        async for chunk in response:
+            delta = chunk.choices[0].delta
+            if delta and delta.content:
+                token = delta.content
+                full_response += token
+                yield token
+
+        latency = round(time.time() - start, 2)
+        total_tokens = len(userinput.split()) + len(full_response.split())
+        cost = round(total_tokens * 0.00001, 6)
+
+        chat = ChatHistory(user_input=userinput, assistant_response=full_response, cost=cost)
+        db.add(chat)
+        db.commit()
+
+        log_step(trace, "AI Response", {}, {"response": full_response})
+        log_step(trace, "Latency", {}, {"seconds": latency})
+        log_step(trace, "Cost", {}, {"tokens": total_tokens, "cost": cost})
+        end_trace(trace)
+
+    return StreamingResponse(event_stream(), media_type="text/plain")
+
+@app.get("/stats")
+async def stats(db: Session = Depends(get_db)):
+    chats = get_all_chats(db)
+    total_cost = sum(float(c.cost or 0) for c in chats)
+    total_tokens = sum(len((c.user_input or "").split()) + len((c.assistant_response or "").split()) for c in chats)
+
+    return JSONResponse({
+        "total_chats": len(chats),
+        "total_tokens": total_tokens,
+        "total_cost": round(total_cost, 4),
+        "avg_latency": "N/A"
+    })
+
+@app.delete("/chat/{chat_id}")
+async def delete(chat_id: int, db: Session = Depends(get_db)):
+    delete_chat(db, chat_id)
+    return {"message": "Deleted"}

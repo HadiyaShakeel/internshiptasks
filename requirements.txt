@@ -1,0 +1,14 @@
+fastapi
+uvicorn
+jinja2
+pydantic
+sqlalchemy
+python-dotenv
+openai
+langsmith
+requests
+aiofiles
+async-exit-stack
+async-generator
+starlette
+
