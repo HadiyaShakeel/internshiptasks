@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hadiya's Bot</title>
+    
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Custom scrollbar for the chat box */
+        .chat-box::-webkit-scrollbar {
+            width: 8px;
+        }
+        .chat-box::-webkit-scrollbar-track {
+            background: #fdf2f8; 
+            border-radius: 10px;
+        }
+        .chat-box::-webkit-scrollbar-thumb {
+            background: #f9a8d4; 
+            border-radius: 10px;
+        }
+        .chat-box::-webkit-scrollbar-thumb:hover {
+            background: #f472b6; 
+        }
+
+        /* Modal overlay for stats and delete confirmation */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+    </style>
+</head>
+<body class="bg-pink-50 flex items-center justify-center min-h-screen p-4">
+
+    <!-- Main Chat Container -->
+    <div class="bg-white rounded-xl shadow-2xl p-6 w-full max-w-2xl flex flex-col h-[90vh]">
+
+        <!-- Header and Controls -->
+        <div class="border-b pb-4 mb-4 flex items-center justify-between">
+            <h1 class="text-3xl font-bold text-pink-800">Hadiya's Bot</h1>
+            <div class="flex space-x-2">
+                <button id="show-stats-button" class="bg-purple-500 text-white text-sm font-semibold px-4 py-2 rounded-full hover:bg-purple-600 transition-colors duration-200">
+                    Show Stats
+                </button>
+                <button id="new-chat-button" class="bg-pink-500 text-white text-sm font-semibold px-4 py-2 rounded-full hover:bg-pink-600 transition-colors duration-200">
+                    New Chat
+                </button>
+                <button id="delete-and-new-chat-button" class="bg-red-500 text-white text-sm font-semibold px-4 py-2 rounded-full hover:bg-red-600 transition-colors duration-200">
+                    Delete & New Chat
+                </button>
+            </div>
+        </div>
+
+        <!-- Chat Display Area -->
+        <div id="chat-box" class="flex-grow overflow-y-auto mb-4 p-4 bg-pink-50 rounded-lg space-y-4">
+            <!-- Messages will be appended here -->
+        </div>
+
+        <!-- User Input Form -->
+        <form id="chat-form" class="flex items-center gap-3">
+            <input
+                type="text"
+                id="user-input"
+                class="flex-grow p-3 border border-pink-300 rounded-full focus:outline-none focus:ring-2 focus:ring-pink-500 transition-all duration-200"
+                placeholder="Type your message..."
+                autocomplete="off"
+                required
+            >
+            <button
+                type="submit"
+                id="send-button"
+                class="bg-pink-500 text-white p-3 rounded-full hover:bg-pink-600 transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled
+            >
+                <!-- Send icon -->
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-send">
+                    <path d="m22 2-7 20-4-9-9-4 20-7Z"/>
+                    <path d="M22 2 11 13"/>
+                </svg>
+            </button>
+        </form>
+
+    </div>
+
+    <!-- Delete Confirmation Modal -->
+    <div id="delete-modal" class="modal-overlay hidden">
+        <div class="bg-white p-8 rounded-lg shadow-xl text-center max-w-sm">
+            <h3 class="text-xl font-bold text-gray-800 mb-4">Confirm Deletion</h3>
+            <p class="text-gray-600 mb-6">Are you sure you want to delete this chat session? This action cannot be undone.</p>
+            <div class="flex justify-center space-x-4">
+                <button id="confirm-delete-button" class="bg-red-500 text-white font-semibold px-6 py-2 rounded-full hover:bg-red-600 transition-colors duration-200">
+                    Confirm Delete
+                </button>
+                <button id="cancel-delete-button" class="bg-gray-300 text-gray-800 font-semibold px-6 py-2 rounded-full hover:bg-gray-400 transition-colors duration-200">
+                    Cancel
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Statistics Modal -->
+    <div id="stats-modal" class="modal-overlay hidden">
+        <div class="bg-white p-8 rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-2xl font-bold text-gray-800">Chat Statistics</h3>
+                <button id="close-stats-button" class="text-gray-500 hover:text-gray-800 transition-colors">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            </div>
+            <div id="stats-content">
+                <!-- Stats will be loaded here -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const chatForm = document.getElementById('chat-form');
+        const userInput = document.getElementById('user-input');
+        const chatBox = document.getElementById('chat-box');
+        const sendButton = document.getElementById('send-button');
+        const newChatButton = document.getElementById('new-chat-button');
+        const deleteAndNewChatButton = document.getElementById('delete-and-new-chat-button');
+        const showStatsButton = document.getElementById('show-stats-button');
+        const deleteModal = document.getElementById('delete-modal');
+        const confirmDeleteButton = document.getElementById('confirm-delete-button');
+        const cancelDeleteButton = document.getElementById('cancel-delete-button');
+        const statsModal = document.getElementById('stats-modal');
+        const statsContent = document.getElementById('stats-content');
+        const closeStatsButton = document.getElementById('close-stats-button');
+
+        // Use the backend URL provided by the environment
+        const backendUrl = typeof __backend_url !== 'undefined' ? __backend_url : 'http://127.0.0.1:8000';
+
+        let sessionId = localStorage.getItem('chat-session-id');
+
+        // Function to append a message to the chat box
+        function appendMessage(sender, text) {
+            const messageElement = document.createElement('div');
+            messageElement.classList.add('message', 'p-3', 'rounded-xl', 'max-w-xl');
+            if (sender === 'user') {
+                messageElement.classList.add('bg-pink-300', 'text-pink-900', 'self-end', 'rounded-br-none', 'mr-2');
+            } else {
+                messageElement.classList.add('bg-purple-100', 'text-purple-800', 'self-start', 'rounded-bl-none', 'ml-2');
+            }
+            
+            messageElement.innerHTML = text;
+            chatBox.appendChild(messageElement);
+            chatBox.scrollTop = chatBox.scrollHeight;
+            return messageElement;
+        }
+
+        // Enable/disable send button based on user input
+        userInput.addEventListener('input', () => {
+            sendButton.disabled = userInput.value.trim() === '';
+        });
+
+        // Function to load chat history
+        async function loadChatHistory(id) {
+            try {
+                const response = await fetch(`${backendUrl}/get_history?session_id=${id}`);
+                if (!response.ok) {
+                    throw new Error('Failed to load chat history');
+                }
+                const data = await response.json();
+                if (data.history && data.history.length > 0) {
+                    chatBox.innerHTML = ''; 
+                    data.history.forEach(msg => {
+                        appendMessage(msg.role, msg.content);
+                    });
+                }
+            } catch (error) {
+                console.error('Error loading history:', error);
+            }
+        }
+
+        // Handle form submission and streaming response
+        chatForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const userPrompt = userInput.value;
+            if (userPrompt.trim() === '') return;
+
+            // Append user message and clear input
+            appendMessage('user', userPrompt);
+            userInput.value = '';
+            sendButton.disabled = true;
+
+            // Create a placeholder for the assistant's response
+            const assistantMessageElement = appendMessage('assistant', '<span class="animate-pulse">...</span>');
+
+            const url = `${backendUrl}/chat?prompt=${encodeURIComponent(userPrompt)}&session_id=${sessionId}`;
+
+            try {
+                const eventSource = new EventSource(url);
+                let fullResponse = '';
+
+                eventSource.onmessage = (event) => {
+                    if (event.data === '[DONE]') {
+                        eventSource.close();
+                        sendButton.disabled = false;
+                        return; 
+                    }
+                    
+                    try {
+                        const data = JSON.parse(event.data);
+                        
+                        if (data.content) {
+                            fullResponse += data.content;
+                            assistantMessageElement.innerHTML = fullResponse;
+                            chatBox.scrollTop = chatBox.scrollHeight;
+                        }
+                        
+                        if (data.session_id && data.session_id !== sessionId) {
+                            sessionId = data.session_id;
+                            localStorage.setItem('chat-session-id', sessionId);
+                        }
+                    } catch (e) {
+                        console.error("Error parsing JSON:", e);
+                    }
+                };
+
+                eventSource.onerror = (error) => {
+                    console.error('EventSource failed:', error);
+                    eventSource.close();
+                    sendButton.disabled = false;
+                    assistantMessageElement.innerHTML = 'Error: Could not connect to the server.';
+                };
+
+            } catch (error) {
+                console.error('Error fetching chat response:', error);
+                assistantMessageElement.innerHTML = 'Error: Failed to get response from server.';
+                sendButton.disabled = false;
+            }
+        });
+
+        // Handle new chat button click
+        newChatButton.addEventListener('click', () => {
+            localStorage.removeItem('chat-session-id');
+            sessionId = null;
+            chatBox.innerHTML = '';
+            userInput.value = '';
+            userInput.focus();
+            appendMessage('assistant', 'Starting a new chat. What can I help you with?');
+        });
+
+        // Handle delete and new chat button click
+        deleteAndNewChatButton.addEventListener('click', () => {
+            if (sessionId) {
+                deleteModal.classList.remove('hidden');
+            } else {
+                // If there's no session, just start a new chat immediately
+                newChatButton.click();
+            }
+        });
+
+        // Handle confirmation of deletion
+        confirmDeleteButton.addEventListener('click', async () => {
+            deleteModal.classList.add('hidden');
+            try {
+                await fetch(`${backendUrl}/delete_chat?session_id=${sessionId}`);
+                console.log("Chat session deleted successfully.");
+            } catch (error) {
+                console.error("Error deleting chat session:", error);
+            }
+            newChatButton.click();
+        });
+
+        // Handle cancellation of deletion
+        cancelDeleteButton.addEventListener('click', () => {
+            deleteModal.classList.add('hidden');
+        });
+
+        // Handle show stats button click
+        showStatsButton.addEventListener('click', async () => {
+            statsContent.innerHTML = `<p class="text-center animate-pulse text-gray-500">Fetching stats...</p>`;
+            statsModal.classList.remove('hidden');
+            try {
+                const response = await fetch(`${backendUrl}/stats`);
+                if (!response.ok) {
+                    throw new Error('Failed to fetch stats');
+                }
+                const stats = await response.json();
+                
+                let statsHtml = `
+                    <div class="mb-6 p-4 bg-purple-100 rounded-lg">
+                        <h4 class="text-xl font-semibold mb-2 text-purple-800">Overall Statistics</h4>
+                        <ul class="list-disc list-inside space-y-1 text-purple-700">
+                            <li>Total Chats: <span class="font-bold">${stats.overall_stats.total_chats}</span></li>
+                            <li>Total Messages: <span class="font-bold">${stats.overall_stats.total_messages}</span></li>
+                            <li>Total Tokens: <span class="font-bold">${stats.overall_stats.total_tokens}</span> (approx)</li>
+                            <li>Total Cost: <span class="font-bold">$${stats.overall_stats.total_cost.toFixed(6)}</span></li>
+                            <li>Total Latency: <span class="font-bold">${stats.overall_stats.total_latency_ms} ms</span></li>
+                            <li>Average Latency per Message: <span class="font-bold">${stats.overall_stats.average_latency_ms_per_message} ms</span></li>
+                            <li>Average Messages per Chat: <span class="font-bold">${stats.overall_stats.average_messages_per_chat.toFixed(2)}</span></li>
+                        </ul>
+                    </div>
+                `;
+
+                // Display per-chat summaries if available
+                if (stats.chat_summaries && stats.chat_summaries.length > 0) {
+                    statsHtml += `
+                        <div class="p-4 bg-pink-100 rounded-lg">
+                            <h4 class="text-xl font-semibold mb-2 text-pink-800">Per-Chat Summaries</h4>
+                            <div class="space-y-4">
+                    `;
+                    stats.chat_summaries.forEach(chat => {
+                        statsHtml += `
+                            <div class="bg-white p-4 rounded-lg shadow-md border border-pink-200">
+                                <p class="text-gray-600 font-mono text-sm mb-2 break-all">Session ID: ${chat.session_id}</p>
+                                <ul class="list-disc list-inside space-y-1 text-gray-700">
+                                    <li>Messages: ${chat.total_messages}</li>
+                                    <li>Tokens: ${chat.total_tokens}</li>
+                                    <li>Latency: ${chat.total_latency_ms} ms</li>
+                                    <li>Cost: $${chat.total_cost.toFixed(6)}</li>
+                                </ul>
+                            </div>
+                        `;
+                    });
+                    statsHtml += `
+                            </div>
+                        </div>
+                    `;
+                }
+
+                statsContent.innerHTML = statsHtml;
+            } catch (error) {
+                console.error('Error fetching stats:', error);
+                statsContent.innerHTML = `<div class="p-4 bg-red-200 text-red-800 rounded-xl">Error: Failed to load stats.</div>`;
+            }
+        });
+
+        // Close stats modal
+        closeStatsButton.addEventListener('click', () => {
+            statsModal.classList.add('hidden');
+        });
+
+        // Load chat history on page load
+        window.onload = () => {
+            if (sessionId) {
+                appendMessage('assistant', 'Loading previous chat...');
+                loadChatHistory(sessionId);
+            } else {
+                appendMessage('assistant', 'Hi there! How can I help you?');
+            }
+        };
+    </script>
+</body>
+</html>
